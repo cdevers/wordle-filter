@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+"""
+wdl-filter v5 - Wordle filter with frequency analysis
+
+Two modes:
+
+  Pipeline mode (original):
+    grep pattern wordle-words.txt | wdl-filter [--show-word WORD]
+
+  Guess mode (new):
+    wdl-filter slate:g___y speed:g_xgg [--show-word WORD] [--wordlist FILE]
+
+  Guess result codes:
+    g  = green  - correct letter, correct position
+    y  = yellow - correct letter, wrong position
+    _  = grey   - letter absent from answer
+    x  = grey on a duplicate - letter is present but this instance is surplus;
+         the answer contains exactly as many of this letter as the g/y hits total
+
+  Modes combine naturally: piped input is filtered first, then guess constraints
+  are applied on top.  Useful for experimental narrowing:
+    grep ".e..." wordle-words.txt | wdl-filter slate:g___y
+"""
+
+import sys
+import os
+import re
+import math
+import argparse
+from collections import Counter
+from pathlib import Path
+
+DEFAULT_WORDLIST = os.environ.get('WORDLE_WORDLIST', str(Path.home() / 'wordle-words.txt'))
+FREQ_FILE        = os.environ.get('FREQ_FILE',        str(Path.home() / 'wordle-freq-full.txt'))
+
+GUESS_RE = re.compile(r'^[a-zA-Z]{5}:[gy_x]{5}$', re.IGNORECASE)
+
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description='wdl-filter: Wordle candidate filter with frequency analysis',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+result codes:  g=green  y=yellow  _=grey  x=grey-duplicate
+
+examples:
+  # pipeline mode (original behaviour)
+  grep "^.a..." wordle-words.txt | wdl-filter
+  grep "^.a..." wordle-words.txt | wdl-filter --show-word attic
+
+  # guess mode — reads ~/wordle-words.txt automatically
+  wdl-filter slate:g___y
+  wdl-filter slate:g___y speed:g_xgg sired:g_ggg
+
+  # combined — pipe pre-filters, guess args refine further
+  grep ".e..." wordle-words.txt | wdl-filter slate:g___y
+
+  # custom word list
+  wdl-filter --wordlist /path/to/words.txt slate:g___y
+""",
+    )
+    parser.add_argument(
+        'guesses', nargs='*', metavar='WORD:RESULT',
+        help='Guesses in word:result form, e.g. slate:g___y'
+    )
+    parser.add_argument(
+        '--show-word', metavar='WORD',
+        help='Always print rank/scores for WORD even if outside top 30'
+    )
+    parser.add_argument(
+        '--wordlist', metavar='FILE', default=DEFAULT_WORDLIST,
+        help=f'Word list for guess mode (default: {DEFAULT_WORDLIST})'
+    )
+    return parser.parse_args()
+
+
+# ---------------------------------------------------------------------------
+# Guess parsing and candidate filtering
+# ---------------------------------------------------------------------------
+
+def parse_guess(token):
+    """Parse 'slate:g___y' -> ('slate', 'g___y'). Raises ValueError on bad input."""
+    if not GUESS_RE.match(token):
+        raise ValueError(
+            f"Invalid guess '{token}'. "
+            f"Expected WORD:RESULT where WORD is 5 letters and "
+            f"RESULT is 5 chars from [g y _ x]."
+        )
+    word, result = token.lower().split(':')
+    return word, result
+
+
+def build_filter(guesses):
+    """
+    Compile a list of (word, result) pairs into a single filter function.
+
+    Constraints built up across all guesses:
+      green[pos]          = letter  — candidate[pos] must equal this
+      yellow_pos[pos]     = {letters} — candidate[pos] must NOT be any of these
+      letter_min[letter]  = n       — candidate must contain >= n of this letter
+      letter_exact[letter]= n       — candidate must contain exactly n of this
+                                      (triggered by _ or x for that letter)
+    """
+    green        = {}            # pos -> letter
+    yellow_pos   = {}            # pos -> set of letters that must NOT be here
+    letter_min   = {}            # letter -> minimum count required
+    letter_exact = {}            # letter -> exact count required
+
+    for word, result in guesses:
+        # g/y hits tell us the minimum count for each letter in this guess
+        gy_counts = Counter(
+            letter for letter, code in zip(word, result) if code in ('g', 'y')
+        )
+        # _ or x means we've hit the ceiling for this letter
+        excluded_in_guess = set(
+            letter for letter, code in zip(word, result) if code in ('_', 'x')
+        )
+
+        for pos, (letter, code) in enumerate(zip(word, result)):
+            if code == 'g':
+                green[pos] = letter
+            elif code == 'y':
+                yellow_pos.setdefault(pos, set()).add(letter)
+
+        # Minimum count: take the max across all guesses
+        for letter, count in gy_counts.items():
+            letter_min[letter] = max(letter_min.get(letter, 0), count)
+
+        # Exact count: number of g/y hits for this letter (0 if none)
+        for letter in excluded_in_guess:
+            letter_exact[letter] = gy_counts.get(letter, 0)
+
+    def matches(candidate):
+        # Green: correct letter at correct position
+        for pos, letter in green.items():
+            if candidate[pos] != letter:
+                return False
+
+        # Yellow: letter must NOT appear at this position
+        for pos, letters in yellow_pos.items():
+            if candidate[pos] in letters:
+                return False
+
+        wc = Counter(candidate)
+
+        # Minimum presence (from green + yellow hits)
+        for letter, min_count in letter_min.items():
+            if wc.get(letter, 0) < min_count:
+                return False
+
+        # Exact count ceiling (from _ and x)
+        for letter, exact_count in letter_exact.items():
+            if wc.get(letter, 0) != exact_count:
+                return False
+
+        return True
+
+    return matches
+
+
+# ---------------------------------------------------------------------------
+# Word list loading
+# ---------------------------------------------------------------------------
+
+def read_words(args, guess_filter):
+    """
+    Return filtered list of 5-letter candidate words.
+
+    Source priority:
+      1. Piped stdin — preserves the original grep-pipeline workflow.
+      2. Guess args present but no stdin — read from --wordlist.
+      3. No guesses, no stdin — try --wordlist as a bare word list file.
+    In all cases, guess_filter is applied if provided.
+    """
+    if not sys.stdin.isatty():
+        raw = sys.stdin.read()
+    elif args.guesses:
+        if not os.path.isfile(args.wordlist):
+            print(f"Error: word list not found: {args.wordlist}", file=sys.stderr)
+            print("Set $WORDLE_WORDLIST or use --wordlist FILE.", file=sys.stderr)
+            sys.exit(1)
+        with open(args.wordlist) as f:
+            raw = f.read()
+    elif os.path.isfile(args.wordlist):
+        with open(args.wordlist) as f:
+            raw = f.read()
+    else:
+        print("Usage: pipe input, provide guess arguments, or specify --wordlist.", file=sys.stderr)
+        print("  grep pattern wordle-words.txt | wdl-filter", file=sys.stderr)
+        print("  wdl-filter slate:g___y speed:g_xgg", file=sys.stderr)
+        sys.exit(1)
+
+    lines = raw.strip().split('\n')
+    words = [line.split()[0].lower() for line in lines if line.strip()]
+    words = [w for w in words if len(w) == 5]
+
+    if guess_filter:
+        words = [w for w in words if guess_filter(w)]
+
+    return words
+
+
+# ---------------------------------------------------------------------------
+# Frequency data
+# ---------------------------------------------------------------------------
+
+def load_frequencies():
+    freqs = {}
+    if os.path.isfile(FREQ_FILE):
+        with open(FREQ_FILE) as f:
+            for line in f:
+                parts = line.strip().split()
+                if len(parts) == 2:
+                    try:
+                        freqs[parts[0]] = float(parts[1])
+                    except ValueError:
+                        pass
+    return freqs
+
+
+# ---------------------------------------------------------------------------
+# Scoring
+# ---------------------------------------------------------------------------
+
+def dynamic_exponent(word_count):
+    """
+    Scale the frequency exponent with candidate pool size.
+
+    Large pool -> high exponent -> floor words (0.0001) collapse toward zero,
+    real words dominate. Small pool -> low exponent -> positional fit starts
+    to differentiate even floor words.
+
+      > 100  ->  3
+      30-100 ->  2
+      10-30  ->  1.5
+      <= 10  ->  1
+    """
+    if word_count > 100:
+        return 3
+    elif word_count > 30:
+        return 2
+    elif word_count > 10:
+        return 1.5
+    else:
+        return 1
+
+
+def score_word(word, position_counts):
+    """Sum of per-position letter frequency counts across all 5 positions."""
+    total = 0
+    for pos, letter in enumerate(word):
+        counts_dict = dict(position_counts[pos])
+        total += counts_dict.get(letter, 0)
+    return total
+
+
+def adaptive_freq_format(freq, max_freq):
+    """
+    Format freq with enough decimal places to show 4 significant figures,
+    scaled to the magnitude of max_freq in the result set.
+
+      max_freq=0.9    -> 4 decimal places
+      max_freq=0.01   -> 5 decimal places
+      max_freq=0.0001 -> 7 decimal places
+    """
+    if max_freq <= 0:
+        return f"{freq:.4f}"
+    magnitude = math.floor(math.log10(max_freq))
+    decimals = max(4, -magnitude + 3)
+    return f"{freq:.{decimals}f}"
+
+
+# ---------------------------------------------------------------------------
+# Position analysis helpers
+# ---------------------------------------------------------------------------
+
+def analyze_position(words, pos):
+    letters = [w[pos] for w in words if len(w) > pos]
+    return Counter(letters).most_common()
+
+
+def format_position_analysis(counts):
+    return "  ".join(f"{letter:>2} {count:>2}" for letter, count in counts)
+
+
+def generate_regex(words, filter_fn, label):
+    parts = []
+    for pos in range(5):
+        counts = analyze_position(words, pos)
+        letters = [l for l, c in counts if filter_fn(c)][:5]
+        parts.append(f"[{''.join(letters)}]" if letters else ".")
+    return f'| egrep "{"".join(parts)}"   # {label}'
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main():
+    args = parse_args()
+    show_word = args.show_word.lower() if args.show_word else None
+
+    # Parse guess arguments; skip any bare tokens without ':'
+    guesses = []
+    for token in args.guesses:
+        if ':' not in token:
+            continue
+        try:
+            guesses.append(parse_guess(token))
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            sys.exit(1)
+
+    guess_filter = build_filter(guesses) if guesses else None
+
+    # Print guess summary when in guess mode
+    if guesses:
+        print("Guesses:")
+        for word, result in guesses:
+            print(f"  {word}  {result}")
+        print()
+
+    words = read_words(args, guess_filter)
+
+    if not words:
+        print("Error: no valid 5-letter words found after filtering.", file=sys.stderr)
+        sys.exit(1)
+
+    word_count     = len(words)
+    position_counts = [analyze_position(words, pos) for pos in range(5)]
+
+    # Position frequency table
+    print(f"matching words: {word_count}")
+    for pos in range(5):
+        print(format_position_analysis(position_counts[pos]))
+    print()
+
+    # Regex suggestions
+    print(generate_regex(words, lambda c: True,   "all letters"))
+    print(generate_regex(words, lambda c: c >= 2, "freq >= 2"))
+    print(generate_regex(words, lambda c: c >= 3, "freq >= 3"))
+
+    # Composite scoring
+    freq_data    = load_frequencies()
+    freq_exp     = dynamic_exponent(word_count)
+    words_scored = []
+    for word in words:
+        freq      = freq_data.get(word, 0.0001)
+        match     = score_word(word, position_counts)
+        composite = match * freq ** freq_exp
+        words_scored.append((word, freq, match, composite))
+
+    words_scored.sort(key=lambda x: x[3], reverse=True)
+    max_freq = max((f for _, f, _, _ in words_scored), default=0.0001)
+
+    # Top 30 list
+    print()
+    if word_count <= 30:
+        print(f"# All {word_count} words (by composite score = match x freq^{freq_exp}):")
+        display_words = words_scored
+    else:
+        print(f"# Top 30 words (by composite score = match x freq^{freq_exp}):")
+        display_words = words_scored[:30]
+
+    for i in range(0, len(display_words), 6):
+        row = display_words[i:i+6]
+        formatted = [
+            f"{word:>8} ({composite:>6.2f}, {adaptive_freq_format(freq, max_freq)})"
+            for word, freq, match, composite in row
+        ]
+        print("  " + "  ".join(formatted))
+
+    # Optional show-word spotlight
+    if show_word:
+        print()
+        hit = next(
+            ((i + 1, w, f, m, c)
+             for i, (w, f, m, c) in enumerate(words_scored)
+             if w == show_word),
+            None
+        )
+        if hit:
+            rank, w, f, m, c = hit
+            print(f"# --show-word '{w}': rank {rank}/{word_count}  "
+                  f"match={m}  freq={adaptive_freq_format(f, max_freq)}  "
+                  f"composite={c:.2f}  (freq^{freq_exp})")
+        else:
+            print(f"# --show-word '{show_word}': not in the {word_count} matching words")
+
+    # Distribution stats
+    very_common = sum(1 for _, f, _, _ in words_scored if f > 0.5)
+    common      = sum(1 for _, f, _, _ in words_scored if 0.1 < f <= 0.5)
+    uncommon    = sum(1 for _, f, _, _ in words_scored if 0.01 < f <= 0.1)
+
+    print()
+    print(f"# Distribution: {very_common} very common (>0.5), "
+          f"{common} common (0.1-0.5), {uncommon} uncommon (0.01-0.1)")
+    print(f"# Freq format scaled to max={adaptive_freq_format(max_freq, max_freq)} (max in set); "
+          f"composite = match x freq^{freq_exp} (dynamic)")
+
+
+if __name__ == "__main__":
+    main()
