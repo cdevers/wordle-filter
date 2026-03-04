@@ -1,0 +1,14 @@
+# Generated — rebuild with `make setup`
+wordle/wordle-freq-full.txt
+wordle/wordle-freq.txt
+wordle/words-with-lettercounts.txt
+
+# Python
+__pycache__/
+*.pyc
+
+# macOS
+.DS_Store
+
+# Vim swap files
+*.sw*
