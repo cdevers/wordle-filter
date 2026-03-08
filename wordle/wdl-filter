@@ -125,6 +125,10 @@ def build_filter(guesses):
                 green[pos] = letter
             elif code == 'y':
                 yellow_pos.setdefault(pos, set()).add(letter)
+            elif code == 'x':
+                # x is grey but the letter IS present (accounted for by a g/y
+                # hit elsewhere). Exclude this position just like y does.
+                yellow_pos.setdefault(pos, set()).add(letter)
 
         # Minimum count: take the max across all guesses
         for letter, count in gy_counts.items():
