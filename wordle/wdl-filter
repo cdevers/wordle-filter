@@ -170,15 +170,15 @@ def build_filter(guesses):
 # Word list loading
 # ---------------------------------------------------------------------------
 
-def read_words(args, guess_filter):
+def get_raw_words(args):
     """
-    Return filtered list of 5-letter candidate words.
+    Read and return the unfiltered list of 5-letter words from the appropriate
+    source. Stdin is consumed here if piped, so call this exactly once.
 
     Source priority:
       1. Piped stdin — preserves the original grep-pipeline workflow.
       2. Guess args present but no stdin — read from --wordlist.
       3. No guesses, no stdin — try --wordlist as a bare word list file.
-    In all cases, guess_filter is applied if provided.
     """
     if not sys.stdin.isatty():
         raw = sys.stdin.read()
@@ -200,11 +200,14 @@ def read_words(args, guess_filter):
 
     lines = raw.strip().split('\n')
     words = [line.split()[0].lower() for line in lines if line.strip()]
-    words = [w for w in words if len(w) == 5]
+    return [w for w in words if len(w) == 5]
 
+
+def read_words(args, guess_filter):
+    """Read raw words and apply an optional filter function."""
+    words = get_raw_words(args)
     if guess_filter:
         words = [w for w in words if guess_filter(w)]
-
     return words
 
 
@@ -321,14 +324,19 @@ def main():
 
     guess_filter = build_filter(guesses) if guesses else None
 
-    # Print guess summary when in guess mode
+    # Read the word source exactly once (stdin can only be consumed once)
+    raw_words = get_raw_words(args)
+
+    # Print guess summary with incremental candidate counts
     if guesses:
-        print("Guesses:")
-        for word, result in guesses:
-            print(f"  {word}  {result}")
+        print("Guesses & matching words:")
+        for i, (word, result) in enumerate(guesses):
+            f = build_filter(guesses[:i+1])
+            count = sum(1 for w in raw_words if f(w))
+            print(f"  {word}  {result}  {count:>4}")
         print()
 
-    words = read_words(args, guess_filter)
+    words = [w for w in raw_words if guess_filter(w)] if guess_filter else raw_words
 
     if not words:
         print("Error: no valid 5-letter words found after filtering.", file=sys.stderr)
