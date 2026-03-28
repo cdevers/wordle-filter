@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f0f11">
+  <title>wdl·filter</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg:         #0f0f11;
+      --surface:    #1c1c21;
+      --surface2:   #26262d;
+      --border:     #38383f;
+      --text:       #f0f0f5;
+      --muted:      #7a7a8a;
+      --green:      #6aaa64;
+      --yellow:     #c9b458;
+      --grey-tile:  #56565e;
+      --x-tile:     #7c5cbf;
+      --floor:      #2a2a32;
+      --red:        #e05c5c;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: 'IBM Plex Sans', system-ui, sans-serif;
+      min-height: 100dvh;
+      padding-bottom: 60px;
+    }
+
+    /* ---- HEADER ---- */
+    header {
+      padding: 18px 16px 14px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+    }
+    header h1 {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 18px;
+      font-weight: 600;
+      letter-spacing: -0.3px;
+    }
+    header p {
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.3px;
+    }
+    header a {
+      margin-left: auto;
+      font-size: 12px;
+      color: var(--muted);
+      text-decoration: none;
+      opacity: 0.7;
+    }
+    header a:hover { opacity: 1; }
+
+    /* ---- LAYOUT ---- */
+    main {
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    /* ---- INPUT CARD ---- */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    #word-input {
+      width: 100%;
+      background: var(--surface2);
+      border: 1.5px solid var(--border);
+      border-radius: 9px;
+      color: var(--text);
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 22px;
+      font-weight: 600;
+      letter-spacing: 6px;
+      padding: 11px 14px;
+      text-transform: lowercase;
+      outline: none;
+      margin-bottom: 12px;
+      transition: border-color 0.15s;
+      -webkit-appearance: none;
+    }
+    #word-input:focus { border-color: var(--green); }
+    #word-input::placeholder {
+      letter-spacing: 2px;
+      color: var(--muted);
+      font-weight: 400;
+      font-size: 16px;
+    }
+
+    /* ---- TILES ---- */
+    .tiles-row {
+      display: flex;
+      gap: 7px;
+      justify-content: center;
+      margin-bottom: 12px;
+    }
+    .tile {
+      flex: 1;
+      aspect-ratio: 1;
+      max-width: 62px;
+      border-radius: 9px;
+      border: 2px solid var(--border);
+      background: var(--floor);
+      cursor: pointer;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      font-family: 'IBM Plex Mono', monospace;
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+      transition: transform 0.08s ease, background 0.12s ease;
+      -webkit-touch-callout: none;
+    }
+    .tile:active { transform: scale(0.91); }
+    .tile.has-letter { border-color: transparent; cursor: pointer; }
+    .tile-letter {
+      font-size: 20px;
+      font-weight: 600;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+    .tile-code {
+      font-size: 9px;
+      font-weight: 400;
+      margin-top: 3px;
+      opacity: 0.75;
+      letter-spacing: 0;
+    }
+    .tile.s-grey   { background: var(--grey-tile);  border-color: transparent; color: #fff; }
+    .tile.s-yellow { background: var(--yellow);      border-color: transparent; color: #fff; }
+    .tile.s-green  { background: var(--green);       border-color: transparent; color: #fff; }
+    .tile.s-x      { background: var(--x-tile);      border-color: transparent; color: #fff; }
+
+    /* ---- ADD BUTTON ---- */
+    #add-btn {
+      width: 100%;
+      padding: 13px;
+      background: var(--green);
+      color: #fff;
+      border: none;
+      border-radius: 9px;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: opacity 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      margin-bottom: 12px;
+    }
+    #add-btn:disabled { opacity: 0.3; cursor: not-allowed; }
+    #add-btn:not(:disabled):active { opacity: 0.75; }
+
+    /* ---- LEGEND ---- */
+    .legend {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+    }
+    .legend-item {
+      display: flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 11px;
+      color: var(--muted);
+      font-family: 'IBM Plex Mono', monospace;
+    }
+    .legend-swatch {
+      width: 13px;
+      height: 13px;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    /* ---- SECTION HEADER ---- */
+    .section-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .section-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 1.2px;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .action-btns {
+      display: flex;
+      gap: 6px;
+    }
+    .btn-sm {
+      padding: 5px 12px;
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: 'IBM Plex Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: color 0.1s;
+    }
+    .btn-sm:active { color: var(--text); }
+
+    /* ---- UNDO BUTTON (last guess row only) ---- */
+    .undo-btn {
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 15px;
+      line-height: 1;
+      padding: 4px 2px;
+      opacity: 0.35;
+      transition: opacity 0.15s;
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0;
+    }
+    .undo-btn:hover, .undo-btn:active { opacity: 0.9; }
+
+    /* ---- GUESS HISTORY ---- */
+    #guesses-section { margin-bottom: 14px; }
+    .guess-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--border);
+    }
+    .guess-row:last-child { border-bottom: none; }
+    .guess-word {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+      text-transform: uppercase;
+      min-width: 46px;
+      letter-spacing: 1px;
+    }
+    .guess-tiles {
+      display: flex;
+      gap: 3px;
+      flex: 1;
+    }
+    .mini-tile {
+      width: 26px;
+      height: 26px;
+      border-radius: 5px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 12px;
+      font-weight: 600;
+      color: #fff;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+    .mini-tile.s-grey   { background: var(--grey-tile); }
+    .mini-tile.s-yellow { background: var(--yellow); }
+    .mini-tile.s-green  { background: var(--green); }
+    .mini-tile.s-x      { background: var(--x-tile); }
+    .guess-count {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      color: var(--muted);
+      text-align: right;
+      min-width: 38px;
+    }
+    .guess-count strong { color: var(--text); }
+
+    /* ---- RESULTS ---- */
+    .results-meta {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+    .match-count {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 28px;
+      font-weight: 600;
+      line-height: 1;
+    }
+    .match-label {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 3px;
+    }
+    .k-badge {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 4px 9px;
+      border-radius: 20px;
+    }
+
+    /* ---- WORD LIST ---- */
+    #word-list { display: flex; flex-direction: column; gap: 2px; }
+    .word-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 12px;
+      border-radius: 9px;
+      background: var(--surface);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.1s;
+    }
+    .word-item:active { background: var(--surface2); }
+    .word-item.top-item {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+    }
+    .word-item.top-item:active { background: var(--border); }
+    .word-rank {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+      min-width: 18px;
+      text-align: right;
+    }
+    .word-text {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 16px;
+      font-weight: 600;
+      flex: 1;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+    }
+    .word-scores {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 2px;
+    }
+    .word-composite {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .word-freq {
+      font-family: 'IBM Plex Mono', monospace;
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .no-data {
+      font-size: 10px;
+      background: var(--floor);
+      color: var(--muted);
+      padding: 1px 5px;
+      border-radius: 3px;
+      letter-spacing: 0;
+    }
+    .more-words {
+      font-size: 12px;
+      color: var(--muted);
+      text-align: center;
+      padding: 8px;
+    }
+
+    /* ---- DISTRIBUTION ---- */
+    #distribution {
+      display: flex;
+      gap: 14px;
+      flex-wrap: wrap;
+      margin-top: 10px;
+      padding: 9px 12px;
+      background: var(--surface);
+      border-radius: 9px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+    #distribution strong { color: var(--text); }
+
+    /* ---- EMPTY STATE ---- */
+    .empty-state {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--muted);
+    }
+    .empty-state p { font-size: 14px; line-height: 1.6; }
+
+    /* ---- NO RESULTS ---- */
+    .no-results {
+      padding: 14px 12px;
+      background: #2a1515;
+      border: 1px solid #5a2020;
+      border-radius: 9px;
+      color: var(--red);
+      font-size: 13px;
+    }
+
+    /* ---- LOADING / ERROR ---- */
+    .loading-state {
+      text-align: center;
+      padding: 48px 16px;
+      color: var(--muted);
+    }
+    .spinner {
+      width: 30px;
+      height: 30px;
+      border: 3px solid var(--border);
+      border-top-color: var(--green);
+      border-radius: 50%;
+      animation: spin 0.75s linear infinite;
+      margin: 0 auto 14px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .error-state {
+      background: #2a1515;
+      border: 1px solid #5a2020;
+      border-radius: 10px;
+      padding: 14px;
+      font-size: 13px;
+      color: var(--red);
+      line-height: 1.5;
+    }
+
+    /* ---- TOAST ---- */
+    #toast {
+      position: fixed;
+      bottom: 28px;
+      left: 50%;
+      transform: translateX(-50%) translateY(70px);
+      background: var(--text);
+      color: var(--bg);
+      padding: 9px 18px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 999;
+      white-space: nowrap;
+      transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: none;
+    }
+    #toast.visible { transform: translateX(-50%) translateY(0); }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>wdl·filter</h1>
+  <p>wordle candidate filter</p>
+  <a href="https://github.com/cdevers/wordle-filter" target="_blank">GitHub ↗</a>
+</header>
+
+<main>
+  <!-- Loading -->
+  <div id="loading-state" class="loading-state">
+    <div class="spinner"></div>
+    <p>Loading word data…</p>
+  </div>
+
+  <!-- Error -->
+  <div id="error-state" class="error-state hidden"></div>
+
+  <!-- App (shown after data loads) -->
+  <div id="app" class="hidden">
+
+    <!-- Input card -->
+    <div class="card">
+      <input type="text" id="word-input"
+        maxlength="5"
+        placeholder="word"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="none"
+        spellcheck="false"
+        inputmode="text">
+
+      <div class="tiles-row" id="tiles-row"></div>
+
+      <button id="add-btn" disabled>Add guess</button>
+
+      <div class="legend">
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--green)"></div>g&nbsp;=&nbsp;green
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--yellow)"></div>y&nbsp;=&nbsp;yellow
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--grey-tile)"></div>_&nbsp;=&nbsp;grey
+        </div>
+        <div class="legend-item">
+          <div class="legend-swatch" style="background:var(--x-tile)"></div>x&nbsp;=&nbsp;duplicate
+        </div>
+      </div>
+    </div>
+
+    <!-- Guess history -->
+    <div id="guesses-section" class="hidden">
+      <div class="section-header">
+        <span class="section-label">Guesses &amp; candidates</span>
+        <div class="action-btns">
+          <button class="btn-sm" id="share-btn">Share</button>
+          <button class="btn-sm" id="clear-btn">Clear</button>
+        </div>
+      </div>
+      <div id="guess-list"></div>
+    </div>
+
+    <!-- Results -->
+    <div id="results-section">
+      <!-- filled by JS -->
+    </div>
+
+  </div><!-- #app -->
+</main>
+
+<div id="toast"></div>
+
+<script>
+// ─────────────────────────────────────────────
+// CONSTANTS
+// ─────────────────────────────────────────────
+const WORDS_URL  = 'https://raw.githubusercontent.com/cdevers/wordle-filter/main/wordle/wordle-words.txt';
+const FREQ_URL   = 'https://raw.githubusercontent.com/cdevers/wordle-filter/main/wordle/wordle-freq-full.txt';
+const FLOOR_FREQ = 0.0001;
+// Cycle order: grey → yellow → green → x-duplicate → grey
+const CYCLE = ['_', 'y', 'g', 'x'];
+const STATE_CLASS = { '_': 's-grey', 'y': 's-yellow', 'g': 's-green', 'x': 's-x' };
+const STATE_LABEL = { '_': 'grey', 'y': 'yellow', 'g': 'green', 'x': 'dup' };
+
+// ─────────────────────────────────────────────
+// STATE
+// ─────────────────────────────────────────────
+let allWords   = [];
+let freqMap    = {};
+let guesses    = [];           // [{word, result}, …]
+let currentWord = '';
+let tileStates  = ['_','_','_','_','_'];
+
+// ─────────────────────────────────────────────
+// DATA LOADING
+// ─────────────────────────────────────────────
+async function loadData() {
+  try {
+    const [wText, fText] = await Promise.all([
+      fetch(WORDS_URL).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); }),
+      fetch(FREQ_URL ).then(r => { if (!r.ok) throw new Error(r.status); return r.text(); }),
+    ]);
+
+    allWords = wText.split('\n')
+      .map(l => l.trim().toLowerCase())
+      .filter(w => w.length === 5 && /^[a-z]+$/.test(w));
+
+    fText.split('\n').forEach(line => {
+      const p = line.trim().split(/\s+/);
+      if (p.length >= 2) {
+        const w = p[0].toLowerCase(), s = parseFloat(p[1]);
+        if (w.length === 5 && !isNaN(s)) freqMap[w] = s;
+      }
+    });
+
+    document.getElementById('loading-state').classList.add('hidden');
+    document.getElementById('app').classList.remove('hidden');
+
+    // Restore from URL
+    const param = new URLSearchParams(location.search).get('g');
+    if (param) {
+      param.split(',').forEach(tok => {
+        const m = tok.match(/^([a-z]{5}):([gy_x]{5})$/i);
+        if (m) guesses.push({ word: m[1].toLowerCase(), result: m[2].toLowerCase() });
+      });
+    }
+
+    renderAll();
+  } catch (err) {
+    document.getElementById('loading-state').classList.add('hidden');
+    const el = document.getElementById('error-state');
+    el.textContent = 'Could not load word data from GitHub. Check your connection and reload.';
+    el.classList.remove('hidden');
+  }
+}
+
+// ─────────────────────────────────────────────
+// FILTER LOGIC  (port of Python build_filter)
+// ─────────────────────────────────────────────
+function buildFilter(gs) {
+  const green       = {};   // pos → letter
+  const yellowPos   = {};   // pos → Set<letter>
+  const letterMin   = {};   // letter → min count
+  const letterExact = {};   // letter → exact count
+
+  for (const {word, result} of gs) {
+    const gyCounts = {};
+    for (let i = 0; i < 5; i++) {
+      if (result[i] === 'g' || result[i] === 'y') {
+        gyCounts[word[i]] = (gyCounts[word[i]] || 0) + 1;
+      }
+    }
+    const excluded = new Set();
+    for (let i = 0; i < 5; i++) {
+      if (result[i] === '_' || result[i] === 'x') excluded.add(word[i]);
+    }
+    for (let pos = 0; pos < 5; pos++) {
+      const l = word[pos], c = result[pos];
+      if (c === 'g') {
+        green[pos] = l;
+      } else if (c === 'y' || c === 'x') {
+        if (!yellowPos[pos]) yellowPos[pos] = new Set();
+        yellowPos[pos].add(l);
+      }
+    }
+    for (const [l, n] of Object.entries(gyCounts)) {
+      letterMin[l] = Math.max(letterMin[l] || 0, n);
+    }
+    for (const l of excluded) {
+      letterExact[l] = gyCounts[l] || 0;
+    }
+  }
+
+  return function matches(w) {
+    for (const [pos, l] of Object.entries(green)) {
+      if (w[+pos] !== l) return false;
+    }
+    for (const [pos, ls] of Object.entries(yellowPos)) {
+      if (ls.has(w[+pos])) return false;
+    }
+    const wc = {};
+    for (const ch of w) wc[ch] = (wc[ch] || 0) + 1;
+    for (const [l, n] of Object.entries(letterMin)) {
+      if ((wc[l] || 0) < n) return false;
+    }
+    for (const [l, n] of Object.entries(letterExact)) {
+      if ((wc[l] || 0) !== n) return false;
+    }
+    return true;
+  };
+}
+
+// ─────────────────────────────────────────────
+// SCORING
+// ─────────────────────────────────────────────
+function dynamicK(n) {
+  if (n > 100) return 3;
+  if (n > 30)  return 2;
+  if (n > 10)  return 1.5;
+  return 1;
+}
+
+function computeResults(words) {
+  // Build per-position letter counts
+  const pc = Array.from({length: 5}, () => ({}));
+  for (const w of words) {
+    for (let i = 0; i < 5; i++) pc[i][w[i]] = (pc[i][w[i]] || 0) + 1;
+  }
+  const k = dynamicK(words.length);
+  const scored = words.map(w => {
+    const freq  = freqMap[w] || FLOOR_FREQ;
+    const match = [0,1,2,3,4].reduce((s,i) => s + (pc[i][w[i]] || 0), 0);
+    return { word: w, freq, match, composite: match * Math.pow(freq, k) };
+  });
+  scored.sort((a, b) => b.composite - a.composite);
+  return { scored, k };
+}
+
+// ─────────────────────────────────────────────
+// FILL WORD FROM RESULTS LIST
+// ─────────────────────────────────────────────
+function fillWord(word) {
+  currentWord = word;
+  tileStates  = ['_','_','_','_','_'];
+  const inp = document.getElementById('word-input');
+  inp.value = word;
+  renderTiles();
+  // Scroll input into view on mobile
+  inp.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  inp.focus();
+}
+
+
+function renderAll() {
+  renderTiles();
+  renderGuesses();
+  renderResults();
+  updateURL();
+}
+
+function renderTiles() {
+  const row = document.getElementById('tiles-row');
+  row.innerHTML = '';
+  for (let i = 0; i < 5; i++) {
+    const btn  = document.createElement('button');
+    const ch   = currentWord[i] || '';
+    const st   = tileStates[i];
+    btn.className = 'tile' + (ch ? ' has-letter ' + STATE_CLASS[st] : '');
+    btn.innerHTML =
+      `<span class="tile-letter">${ch ? ch.toUpperCase() : '·'}</span>` +
+      `<span class="tile-code">${ch ? st : ''}</span>`;
+    btn.setAttribute('aria-label',
+      `pos ${i+1}: ${ch || 'empty'} ${ch ? STATE_LABEL[st] : ''}`);
+    if (ch) {
+      const idx = i; // capture
+      btn.addEventListener('click', () => {
+        tileStates[idx] = CYCLE[(CYCLE.indexOf(tileStates[idx]) + 1) % CYCLE.length];
+        renderTiles();
+      });
+    }
+    row.appendChild(btn);
+  }
+  document.getElementById('add-btn').disabled = currentWord.length !== 5;
+}
+
+function renderGuesses() {
+  const section = document.getElementById('guesses-section');
+  if (guesses.length === 0) { section.classList.add('hidden'); return; }
+  section.classList.remove('hidden');
+
+  const list = document.getElementById('guess-list');
+  list.innerHTML = '';
+
+  guesses.forEach(({word, result}, i) => {
+    const count = (() => {
+      const f = buildFilter(guesses.slice(0, i + 1));
+      return allWords.filter(f).length;
+    })();
+
+    const row = document.createElement('div');
+    row.className = 'guess-row';
+
+    const wordEl = document.createElement('div');
+    wordEl.className = 'guess-word';
+    wordEl.textContent = word.toUpperCase();
+
+    const tilesEl = document.createElement('div');
+    tilesEl.className = 'guess-tiles';
+    for (let j = 0; j < 5; j++) {
+      const t = document.createElement('div');
+      t.className = 'mini-tile ' + STATE_CLASS[result[j]];
+      t.textContent = word[j].toUpperCase();
+      tilesEl.appendChild(t);
+    }
+
+    const countEl = document.createElement('div');
+    countEl.className = 'guess-count';
+    countEl.innerHTML = `<strong>${count.toLocaleString()}</strong>`;
+
+    row.append(wordEl, tilesEl, countEl);
+
+    // Undo button only on the last guess
+    if (i === guesses.length - 1) {
+      const undoBtn = document.createElement('button');
+      undoBtn.className = 'undo-btn';
+      undoBtn.textContent = '🗑️';
+      undoBtn.setAttribute('aria-label', 'Remove last guess');
+      undoBtn.addEventListener('click', () => {
+        guesses.pop();
+        renderAll();
+      });
+      row.appendChild(undoBtn);
+    }
+
+    list.appendChild(row);
+  });
+}
+
+function renderResults() {
+  const section = document.getElementById('results-section');
+
+  if (guesses.length === 0) {
+    section.innerHTML = `
+      <div class="empty-state">
+        <p>Type a word, tap the tiles to set each letter's result,<br>then press <strong>Add guess</strong>.<br><br>Tap any word in the results list to fill it in automatically.</p>
+      </div>`;
+    return;
+  }
+
+  const filter = buildFilter(guesses);
+  const words  = allWords.filter(filter);
+
+  if (words.length === 0) {
+    section.innerHTML = `<div class="no-results">No matching words — check for conflicting constraints.</div>`;
+    return;
+  }
+
+  const { scored, k } = computeResults(words);
+  const display = scored.slice(0, 30);
+
+  const veryCommon = scored.filter(w => w.freq > 0.5).length;
+  const common     = scored.filter(w => w.freq > 0.1 && w.freq <= 0.5).length;
+  const uncommon   = scored.filter(w => w.freq > 0.01 && w.freq <= 0.1).length;
+
+  section.innerHTML = `
+    <div class="results-meta">
+      <div>
+        <div class="match-count">${words.length.toLocaleString()}</div>
+        <div class="match-label">matching words</div>
+      </div>
+      <div class="k-badge">freq^${k}</div>
+    </div>
+    <div id="word-list"></div>
+    <div id="distribution">
+      <span><strong>${veryCommon}</strong> very common (&gt;0.5)</span>
+      <span><strong>${common}</strong> common (0.1–0.5)</span>
+      <span><strong>${uncommon}</strong> uncommon (0.01–0.1)</span>
+    </div>`;
+
+  const listEl = document.getElementById('word-list');
+  display.forEach(({word, freq, composite}, i) => {
+    const isFloor = freq <= FLOOR_FREQ;
+    const item = document.createElement('div');
+    item.className = 'word-item' + (i === 0 ? ' top-item' : '');
+    item.innerHTML = `
+      <div class="word-rank">${i + 1}</div>
+      <div class="word-text">${word.toUpperCase()}</div>
+      <div class="word-scores">
+        <div class="word-composite">${composite.toFixed(2)}</div>
+        <div class="word-freq">${isFloor
+          ? '<span class="no-data">no data</span>'
+          : freq.toFixed(4)}</div>
+      </div>`;
+    item.addEventListener('click', () => fillWord(word));
+    listEl.appendChild(item);
+  });
+
+  if (words.length > 30) {
+    const more = document.createElement('div');
+    more.className = 'more-words';
+    more.textContent = `+ ${(words.length - 30).toLocaleString()} more`;
+    listEl.appendChild(more);
+  }
+}
+
+// ─────────────────────────────────────────────
+// URL STATE
+// ─────────────────────────────────────────────
+function updateURL() {
+  const url = new URL(location.href);
+  if (guesses.length > 0) {
+    url.searchParams.set('g', guesses.map(g => `${g.word}:${g.result}`).join(','));
+  } else {
+    url.searchParams.delete('g');
+  }
+  history.replaceState({}, '', url);
+}
+
+// ─────────────────────────────────────────────
+// TOAST
+// ─────────────────────────────────────────────
+let toastTimer;
+function toast(msg) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.classList.add('visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('visible'), 2000);
+}
+
+// ─────────────────────────────────────────────
+// ADD GUESS
+// ─────────────────────────────────────────────
+function addGuess() {
+  if (currentWord.length !== 5) return;
+  guesses.push({ word: currentWord, result: tileStates.join('') });
+  currentWord = '';
+  tileStates  = ['_','_','_','_','_'];
+  const inp = document.getElementById('word-input');
+  inp.value = '';
+  renderAll();
+  inp.focus();
+}
+
+// ─────────────────────────────────────────────
+// EVENT WIRING
+// ─────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  const inp = document.getElementById('word-input');
+
+  inp.addEventListener('input', e => {
+    const val = e.target.value.replace(/[^a-zA-Z]/g, '').toLowerCase().slice(0, 5);
+    e.target.value = val;
+    currentWord = val;
+    renderTiles();
+  });
+
+  inp.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && currentWord.length === 5) addGuess();
+  });
+
+  document.getElementById('add-btn').addEventListener('click', addGuess);
+
+  document.getElementById('clear-btn').addEventListener('click', () => {
+    guesses     = [];
+    currentWord = '';
+    tileStates  = ['_','_','_','_','_'];
+    document.getElementById('word-input').value = '';
+    renderAll();
+  });
+
+  document.getElementById('share-btn').addEventListener('click', () => {
+    navigator.clipboard.writeText(location.href)
+      .then(() => toast('Link copied!'))
+      .catch(() => toast('Copy failed'));
+  });
+});
+
+// ─────────────────────────────────────────────
+// INIT
+// ─────────────────────────────────────────────
+loadData();
+</script>
+</body>
+</html>

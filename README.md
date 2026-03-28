@@ -151,7 +151,24 @@ wordle-freq-full.txt      Generated: log-scaled frequency scores (gitignored)
 wdl-filter                Main filter script (Python 3)
 wordle_freq_annotator.py  One-time setup: builds wordle-freq-full.txt
 Makefile                  setup, install, help targets
+`index.html`              Web interface — runs entirely in the browser, no server needed
+
 ```
+## Web interface
+
+A browser-based version is available at **https://cdevers.github.io/wdl** —
+useful when you're away from the command line (phone, tablet, etc.).
+
+**`index.html`** at the repo root is the single-file web app. It loads the
+word list and frequency data directly from this repo at runtime, so no build
+step or server is needed. Just open the URL.
+
+Features:
+- Tap tiles to cycle through green / yellow / grey / duplicate states
+- Tap any word in the results list to fill it into the input automatically
+- Candidate count shown after each guess, narrowing as you add more
+- Share button encodes your current session in the URL
+- Undo button (🗑️) on the last guess row to roll back a mistake
 
 ## License
 
