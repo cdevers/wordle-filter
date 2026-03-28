@@ -151,7 +151,7 @@ wordle-freq-full.txt      Generated: log-scaled frequency scores (gitignored)
 wdl-filter                Main filter script (Python 3)
 wordle_freq_annotator.py  One-time setup: builds wordle-freq-full.txt
 Makefile                  setup, install, help targets
-`index.html`              Web interface — runs entirely in the browser, no server needed
+index.html                Web interface — runs entirely in the browser, no server needed
 
 ```
 ## Web interface
