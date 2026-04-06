@@ -412,6 +412,28 @@
       font-size: 13px;
     }
 
+    /* ---- GAME OVER BANNERS ---- */
+    .banner-solved {
+      padding: 14px 16px;
+      background: #152a18;
+      border: 1px solid #2a5c2e;
+      border-radius: 9px;
+      color: var(--green);
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+    .banner-lost {
+      padding: 14px 16px;
+      background: #2a1515;
+      border: 1px solid #5a2020;
+      border-radius: 9px;
+      color: var(--red);
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 14px;
+    }
+
     /* ---- LOADING / ERROR ---- */
     .loading-state {
       text-align: center;
@@ -684,9 +706,29 @@ function computeResults(words) {
 // ─────────────────────────────────────────────
 // FILL WORD FROM RESULTS LIST
 // ─────────────────────────────────────────────
+
+// Returns a map of pos → letter for all confirmed green positions so far.
+function getKnownGreens() {
+  const greens = {};
+  for (const {word, result} of guesses) {
+    for (let i = 0; i < 5; i++) {
+      if (result[i] === 'g') greens[i] = word[i];
+    }
+  }
+  return greens;
+}
+
+// Build initial tile states for a word, pre-filling confirmed green positions.
+function initialTileStates(word) {
+  const greens = getKnownGreens();
+  return Array.from({length: 5}, (_, i) =>
+    (greens[i] && word[i] === greens[i]) ? 'g' : '_'
+  );
+}
+
 function fillWord(word) {
   currentWord = word;
-  tileStates  = ['_','_','_','_','_'];
+  tileStates  = initialTileStates(word);
   const inp = document.getElementById('word-input');
   inp.value = word;
   renderTiles();
@@ -696,7 +738,15 @@ function fillWord(word) {
 }
 
 
-function renderAll() {
+function isSolved() {
+  return guesses.length > 0 && guesses[guesses.length - 1].result === 'ggggg';
+}
+
+function isGameOver() {
+  return isSolved() || guesses.length >= 6;
+}
+
+
   renderTiles();
   renderGuesses();
   renderResults();
@@ -725,7 +775,8 @@ function renderTiles() {
     }
     row.appendChild(btn);
   }
-  document.getElementById('add-btn').disabled = currentWord.length !== 5;
+  document.getElementById('add-btn').disabled = currentWord.length !== 5 || isGameOver();
+  document.getElementById('word-input').disabled = isGameOver();
 }
 
 function renderGuesses() {
@@ -795,8 +846,17 @@ function renderResults() {
   const filter = buildFilter(guesses);
   const words  = allWords.filter(filter);
 
+  // Game-over banner — shown above results (or instead of them if lost)
+  let banner = '';
+  if (isSolved()) {
+    const n = guesses.length;
+    banner = `<div class="banner-solved">🟩 Solved in ${n} guess${n === 1 ? '' : 'es'}!</div>`;
+  } else if (guesses.length >= 6) {
+    banner = `<div class="banner-lost">No more guesses — better luck tomorrow.</div>`;
+  }
+
   if (words.length === 0) {
-    section.innerHTML = `<div class="no-results">No matching words — check for conflicting constraints.</div>`;
+    section.innerHTML = banner + `<div class="no-results">No matching words — check for conflicting constraints.</div>`;
     return;
   }
 
@@ -807,7 +867,13 @@ function renderResults() {
   const common     = scored.filter(w => w.freq > 0.1 && w.freq <= 0.5).length;
   const uncommon   = scored.filter(w => w.freq > 0.01 && w.freq <= 0.1).length;
 
-  section.innerHTML = `
+  // After solving, just show the banner — no need for the candidate list
+  if (isSolved()) {
+    section.innerHTML = banner;
+    return;
+  }
+
+  section.innerHTML = banner + `
     <div class="results-meta">
       <div>
         <div class="match-count">${words.length.toLocaleString()}</div>
@@ -877,7 +943,7 @@ function toast(msg) {
 // ADD GUESS
 // ─────────────────────────────────────────────
 function addGuess() {
-  if (currentWord.length !== 5) return;
+  if (currentWord.length !== 5 || isGameOver()) return;
   guesses.push({ word: currentWord, result: tileStates.join('') });
   currentWord = '';
   tileStates  = ['_','_','_','_','_'];
@@ -897,6 +963,15 @@ document.addEventListener('DOMContentLoaded', () => {
     const val = e.target.value.replace(/[^a-zA-Z]/g, '').toLowerCase().slice(0, 5);
     e.target.value = val;
     currentWord = val;
+    // Pre-fill confirmed green positions for letters already typed
+    const greens = getKnownGreens();
+    for (let i = 0; i < 5; i++) {
+      if (greens[i] && val[i] === greens[i]) {
+        tileStates[i] = 'g';
+      } else if (tileStates[i] === 'g' && val[i] !== greens[i]) {
+        tileStates[i] = '_'; // clear a stale green if letter changed
+      }
+    }
     renderTiles();
   });
 
@@ -928,3 +1003,4 @@ loadData();
 </script>
 </body>
 </html>
+
